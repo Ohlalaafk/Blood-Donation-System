@@ -1,8 +1,12 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Droplet, Heart, User } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { useAppointments } from "@/hooks/useAppointments";
+import { useDonationHistory } from "@/hooks/useDonationHistory";
+import { useDonorProfile } from "@/hooks/useDonorProfile";
 
 interface DonationStats {
   totalDonations: number;
@@ -25,35 +29,107 @@ interface DonorDashboardProps {
   onScheduleAppointment?: () => void;
   onViewHistory?: () => void;
   onViewProfile?: () => void;
+  donorId?: string;
 }
 
 const DonorDashboard = ({
-  donorName = "John Doe",
-  stats = {
-    totalDonations: 8,
-    lastDonation: "2023-05-15",
-    nextEligible: "2023-08-15",
-    bloodType: "O+",
-  },
-  upcomingAppointment = {
-    date: "2023-08-20",
-    time: "10:30 AM",
-    location: "Central Blood Bank",
-    status: "confirmed",
-  },
+  donorName,
+  stats: initialStats,
+  upcomingAppointment: initialAppointment,
   onScheduleAppointment = () => {},
   onViewHistory = () => {},
   onViewProfile = () => {},
+  donorId = "1", // Default donor ID for demo purposes
 }: DonorDashboardProps) => {
-  const isEligible = new Date(stats.nextEligible) <= new Date();
+  // Use the custom hooks to fetch real data
+  const { profile, loading: profileLoading } = useDonorProfile(donorId);
+  const { stats: donationStats, loading: historyLoading } =
+    useDonationHistory(donorId);
+  const { upcomingAppointment: nextAppointment, loading: appointmentLoading } =
+    useAppointments(donorId);
+
+  // Set up state with either provided props or data from hooks
+  const [stats, setStats] = useState<DonationStats>(
+    initialStats || {
+      totalDonations: 0,
+      lastDonation: new Date().toISOString().split("T")[0],
+      nextEligible: new Date().toISOString().split("T")[0],
+      bloodType: "Unknown",
+    },
+  );
+
+  const [upcomingAppointment, setUpcomingAppointment] =
+    useState<UpcomingAppointment | null>(initialAppointment || null);
+
+  // Update state when data from hooks changes
+  useEffect(() => {
+    if (!profileLoading && profile) {
+      // If we have a profile, use the name from it
+      if (profile.name) {
+        // Don't override if donorName was explicitly provided as a prop
+        if (!donorName) {
+          donorName = profile.name;
+        }
+      }
+
+      // Update stats with profile data
+      setStats((prev) => ({
+        ...prev,
+        bloodType: profile.blood_type || prev.bloodType,
+        nextEligible: profile.next_eligible_date || prev.nextEligible,
+      }));
+    }
+
+    if (!historyLoading && donationStats) {
+      // Update stats with donation history data
+      setStats((prev) => ({
+        ...prev,
+        totalDonations: donationStats.totalDonations || prev.totalDonations,
+        lastDonation: donationStats.lastDonation?.date || prev.lastDonation,
+      }));
+    }
+
+    if (!appointmentLoading && nextAppointment) {
+      // Convert the appointment data to the format expected by the component
+      setUpcomingAppointment({
+        date: nextAppointment.date,
+        time: nextAppointment.time,
+        location: nextAppointment.location,
+        status:
+          nextAppointment.status === "scheduled"
+            ? "confirmed"
+            : nextAppointment.status === "cancelled"
+              ? "cancelled"
+              : "pending",
+      });
+    }
+  }, [
+    profileLoading,
+    historyLoading,
+    appointmentLoading,
+    profile,
+    donationStats,
+    nextAppointment,
+    donorName,
+  ]);
+  const isEligible = stats.nextEligible
+    ? new Date(stats.nextEligible) <= new Date()
+    : false;
 
   const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    };
-    return new Date(dateString).toLocaleDateString(undefined, options);
+    if (!dateString) return "Not available";
+
+    try {
+      const options: Intl.DateTimeFormatOptions = {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      };
+      return new Date(dateString).toLocaleDateString(undefined, options);
+    } catch (error) {
+      console.error("Error formatting date:", error);
+      return "Invalid date";
+    }
   };
 
   const getStatusBadge = (status: "confirmed" | "pending" | "cancelled") => {
@@ -82,7 +158,7 @@ const DonorDashboard = ({
   return (
     <div className="w-full max-w-6xl mx-auto p-6 bg-white">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Welcome, {donorName}</h1>
+        <h1 className="text-2xl font-bold">Welcome, {donorName || "Donor"}</h1>
         <Button variant="outline" onClick={onViewProfile}>
           <User className="mr-2 h-4 w-4" /> View Profile
         </Button>
