@@ -22,7 +22,10 @@ const AuthWrapper: React.FC<AuthWrapperProps> = ({
     );
   }
 
-  if (requireAuth && !user) {
+  // For development purposes, bypass authentication check
+  const bypassAuth = true;
+
+  if (requireAuth && !user && !bypassAuth) {
     // Redirect to login if authentication is required but user is not logged in
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
